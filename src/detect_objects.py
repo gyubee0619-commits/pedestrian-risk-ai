@@ -10,7 +10,7 @@ from risk_analysis import (
 # =========================
 # 경로 설정
 # =========================
-PROJECT_ROOT = r"C:\Users\SM-PC\Desktop\pedestrian-risk-ai"
+PROJECT_ROOT = r"C:\Users\SM-PC\OSSP_project\pedestrian-risk-ai"
 
 MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "best.pt")
 IMAGE_PATH = os.path.join(PROJECT_ROOT, "test_images", "test1.jpg")
