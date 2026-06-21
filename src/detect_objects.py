@@ -48,6 +48,8 @@ def main():
 
     print("\n===== 객체 검출 결과 =====")
 
+    risk_results = []
+
     # 4. 검출 결과 순회
     for idx, box_data in enumerate(result.boxes, start=1):
         cls_id = int(box_data.cls[0].item())
@@ -81,9 +83,14 @@ def main():
             img_h
         )
 
-        isk_level = get_risk_level(
+        risk_level = get_risk_level(
             risk_score
         )
+
+        risk_results.append({
+        "class": class_name,
+        "score": risk_score
+        })
 
         # 콘솔 출력
         print(f"[{idx}] 객체 종류: {class_name}")
@@ -110,6 +117,15 @@ def main():
         center_text = f"({center_x},{center_y})"
         cv2.putText(output_img, center_text, (center_x + 5, center_y - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+    
+    #가장 위험한 객체 계산
+    most_dangerous = max(
+    risk_results,
+    key=lambda x: x["score"]
+    )
+
+    print("\n가장 위험한 객체")
+    print(most_dangerous)
 
     # 5. 결과 이미지 저장
     output_path = os.path.join(OUTPUT_DIR, "result_test1.jpg")
