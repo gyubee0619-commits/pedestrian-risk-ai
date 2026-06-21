@@ -2,6 +2,11 @@ from ultralytics import YOLO
 import cv2
 import os
 
+from risk_analysis import (
+    calculate_risk,
+    get_risk_level
+)
+
 # =========================
 # 경로 설정
 # =========================
