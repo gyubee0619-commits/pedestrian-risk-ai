@@ -53,10 +53,21 @@ def calculate_risk(prediction, img_width, img_height):
     else:
         size_score = 10
 
-    # --------------------
     # 4. 최종 위험도
-    # --------------------
 
     risk_score = ( type_score + position_score + size_score )
 
     return risk_score
+
+# 위험도 등급 분류 함수
+
+def get_risk_level(score):
+
+    if score >= 80:
+        return "HIGH"
+
+    elif score >= 50:
+        return "MEDIUM"
+
+    else:
+        return "LOW"
