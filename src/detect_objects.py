@@ -67,12 +67,33 @@ def main():
         center_x = (x1 + x2) // 2
         center_y = (y1 + y2) // 2
 
+        # 위험도 계산
+        prediction = {
+        "class": class_name,
+        "x": center_x,
+        "width": box_w,
+        "height": box_h
+        }
+
+        risk_score = calculate_risk(
+            prediction,
+            img_w,
+            img_h
+        )
+
+        isk_level = get_risk_level(
+            risk_score
+        )
+
         # 콘솔 출력
         print(f"[{idx}] 객체 종류: {class_name}")
         print(f"    신뢰도: {conf:.2f}")
         print(f"    박스 좌표: ({x1}, {y1}, {x2}, {y2})")
         print(f"    중심 위치: ({center_x}, {center_y})")
         print(f"    크기: width={box_w}, height={box_h}, area={box_area}")
+
+        print(f"    위험도 점수: {risk_score}")
+        print(f"    위험도 등급: {risk_level}")
 
         # 이미지에 박스/라벨 그리기
         label = f"{class_name} {conf:.2f}"
