@@ -31,6 +31,7 @@ pedestrian Risk AI는 이미지에서 자동차, 오토바이, 자전거 등의 
 - 결과 시각화 UI
   
 ## 프로젝트 구조
+```text
 pedestrian-risk-ai/
 ├─ dataset/
 │ ├─ train/ 
@@ -49,6 +50,7 @@ pedestrian-risk-ai/
 │ ├─ risk_analysis.py
 ├─ test_images
 ├─ yolov8n.pt
+```
 
 ## 각 폴더 설명
 1. dataset/
