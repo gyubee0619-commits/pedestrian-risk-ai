@@ -43,12 +43,11 @@ pedestrian-risk-ai/
 │ └─ data.yaml
 ├─ test_images/
 ├─ models/
-│ ├─ best.pt/
+│ ├─ best.pt
 ├─ outputs/
 ├─ src/
 │ ├─ detect_objects.py
 │ ├─ risk_analysis.py
-├─ test_images
 ├─ yolov8n.pt
 ```
 
