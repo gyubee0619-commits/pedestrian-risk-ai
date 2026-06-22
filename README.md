@@ -71,8 +71,8 @@ train, valid, test, images, labels, data.yaml 등의 구조를 포함합니다.
 객체 인식, 위험도 계산, UI 시각화 등 주요 코드가 위치하는 폴더입니다.
 향후 기능별로 파일을 분리하여 관리할 수 있습니다.
 
-detect_objects.py : 객체 인식 실행 코드
-risk_logic.py : 위험도 계산 코드
+detect_objects.py : 객체 검출 및 정보 추출 코드
+risk_analysis.py : 위험도 계산 및 위험 등급 분류 코드
 ui.py : 시각화/UI 코드
 
 5. test_images/
