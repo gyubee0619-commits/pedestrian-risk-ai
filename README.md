@@ -266,7 +266,7 @@ python src/object_detect.py
         ↓
 [위험도 계산 모듈]
         ↓
-위험도 결과 (예: 안전 / 주의 / 위험)
+위험도 결과 (예: Low / Medium / High)
         ↓
 [UI 시각화 모듈]
         ↓
