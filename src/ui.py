@@ -1,52 +1,43 @@
 import argparse
 import json
 import os
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
 
 
-RiskColor = Tuple[int, int, int]
-Point = Tuple[int, int]
+Color = Tuple[int, int, int]
 Box = Tuple[int, int, int, int]
+Detection = Dict[str, Any]
 
 
 RISK_STYLES: Dict[str, Dict[str, Any]] = {
     "LOW": {
-        "color": (0, 180, 0),
-        "text": "LOW",
-        "warning": "Safe: low pedestrian risk",
+        "color": (34, 170, 76),
+        "label": "LOW",
+        "message": "LOW RISK - Keep monitoring",
     },
     "MEDIUM": {
         "color": (0, 165, 255),
-        "text": "MEDIUM",
-        "warning": "Caution: nearby moving object",
+        "label": "MEDIUM",
+        "message": "CAUTION - Moving object nearby",
     },
     "HIGH": {
-        "color": (0, 0, 255),
-        "text": "HIGH",
-        "warning": "Warning: high collision risk",
+        "color": (0, 0, 230),
+        "label": "HIGH",
+        "message": "WARNING - High collision risk",
     },
 }
 
 DEFAULT_STYLE = {
-    "color": (180, 180, 180),
-    "text": "UNKNOWN",
-    "warning": "No risk level available",
+    "color": (150, 150, 150),
+    "label": "UNKNOWN",
+    "message": "UNKNOWN RISK",
 }
 
 
-def get_risk_style(risk_level: Optional[str]) -> Dict[str, Any]:
-    """Return color and text style for a risk level."""
-    if not risk_level:
-        return DEFAULT_STYLE
-
-    return RISK_STYLES.get(str(risk_level).upper(), DEFAULT_STYLE)
-
-
-def get_risk_level_from_score(score: Optional[float]) -> str:
-    """Classify a risk score when a detection does not already include a level."""
+def get_risk_level_from_score(score: Optional[Union[int, float]]) -> str:
     if score is None:
         return "UNKNOWN"
     if score >= 80:
@@ -56,107 +47,61 @@ def get_risk_level_from_score(score: Optional[float]) -> str:
     return "LOW"
 
 
-def draw_text_with_background(
-    image: np.ndarray,
-    text: str,
-    origin: Point,
-    font_scale: float = 0.55,
-    text_color: RiskColor = (255, 255, 255),
-    background_color: RiskColor = (0, 0, 0),
-    thickness: int = 1,
-    padding: int = 5,
-) -> None:
-    """Draw readable text on a filled background."""
-    x, y = origin
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-
-    x1 = max(x, 0)
-    y1 = max(y - text_h - padding * 2, 0)
-    x2 = min(x + text_w + padding * 2, image.shape[1] - 1)
-    y2 = min(y + baseline, image.shape[0] - 1)
-
-    cv2.rectangle(image, (x1, y1), (x2, y2), background_color, -1)
-    cv2.putText(
-        image,
-        text,
-        (x1 + padding, y2 - baseline - padding),
-        font,
-        font_scale,
-        text_color,
-        thickness,
-        cv2.LINE_AA,
-    )
+def get_risk_style(risk_level: Optional[str]) -> Dict[str, Any]:
+    if risk_level is None:
+        return DEFAULT_STYLE
+    return RISK_STYLES.get(str(risk_level).upper(), DEFAULT_STYLE)
 
 
-def normalize_detection(detection: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Normalize detection keys used by YOLO/risk modules.
-
-    Accepted box formats:
-    - bbox: [x1, y1, x2, y2]
-    - box: [x1, y1, x2, y2]
-    - x1, y1, x2, y2 keys
-    """
+def normalize_box(detection: Detection) -> Box:
     box = detection.get("bbox") or detection.get("box")
-    if box is None:
-        box = [
-            detection.get("x1", 0),
-            detection.get("y1", 0),
-            detection.get("x2", 0),
-            detection.get("y2", 0),
-        ]
+    if box is not None:
+        x1, y1, x2, y2 = box
+        return int(x1), int(y1), int(x2), int(y2)
 
-    x1, y1, x2, y2 = [int(value) for value in box]
+    if all(key in detection for key in ("x1", "y1", "x2", "y2")):
+        return (
+            int(detection["x1"]),
+            int(detection["y1"]),
+            int(detection["x2"]),
+            int(detection["y2"]),
+        )
+
+    x = int(detection.get("x", 0))
+    y = int(detection.get("y", 0))
+    width = int(detection.get("width", 0))
+    height = int(detection.get("height", 0))
+    return x, y, x + width, y + height
+
+
+def normalize_detection(detection: Detection) -> Detection:
+    x1, y1, x2, y2 = normalize_box(detection)
+    width = int(detection.get("width", x2 - x1))
+    height = int(detection.get("height", y2 - y1))
     score = detection.get("risk_score", detection.get("score"))
-    risk_level = detection.get("risk_level") or detection.get("level")
+    risk_level = detection.get("risk_level", detection.get("level"))
     risk_level = str(risk_level or get_risk_level_from_score(score)).upper()
 
     return {
-        "class_name": detection.get("class_name", detection.get("class", "object")),
+        "class_name": detection.get(
+            "class_name",
+            detection.get("class", detection.get("object_type", "object")),
+        ),
+        "bbox": (x1, y1, x2, y2),
+        "width": width,
+        "height": height,
         "confidence": detection.get("confidence", detection.get("conf")),
         "risk_score": score,
         "risk_level": risk_level,
-        "bbox": (x1, y1, x2, y2),
     }
 
 
-def draw_detection_box(image: np.ndarray, detection: Dict[str, Any]) -> None:
-    """Draw one object box, label, center point, and risk score."""
-    normalized = normalize_detection(detection)
-    x1, y1, x2, y2 = normalized["bbox"]
-    style = get_risk_style(normalized["risk_level"])
-    color = style["color"]
-
-    cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
-
-    center_x = (x1 + x2) // 2
-    center_y = (y1 + y2) // 2
-    cv2.circle(image, (center_x, center_y), 5, color, -1)
-
-    confidence = normalized["confidence"]
-    confidence_text = "" if confidence is None else f" {float(confidence):.2f}"
-    score = normalized["risk_score"]
-    score_text = "" if score is None else f" | score {int(score)}"
-    label = (
-        f"{normalized['class_name']}{confidence_text} | "
-        f"{normalized['risk_level']}{score_text}"
-    )
-
-    label_y = y1 - 8 if y1 > 30 else y2 + 24
-    draw_text_with_background(
-        image=image,
-        text=label,
-        origin=(x1, label_y),
-        font_scale=0.55,
-        background_color=color,
-        thickness=1,
-    )
+def normalize_detections(detections: Iterable[Detection]) -> List[Detection]:
+    return [normalize_detection(detection) for detection in detections]
 
 
-def get_overall_risk(detections: Iterable[Dict[str, Any]]) -> Tuple[str, Optional[float]]:
-    """Return the highest risk level and score from all detections."""
-    normalized = [normalize_detection(item) for item in detections]
+def get_overall_risk(detections: Iterable[Detection]) -> Tuple[str, Optional[float]]:
+    normalized = normalize_detections(detections)
     if not normalized:
         return "LOW", None
 
@@ -171,140 +116,330 @@ def get_overall_risk(detections: Iterable[Dict[str, Any]]) -> Tuple[str, Optiona
     return highest["risk_level"], highest["risk_score"]
 
 
-def draw_warning_banner(
+def put_text(
     image: np.ndarray,
-    detections: Iterable[Dict[str, Any]],
-    alpha: float = 0.82,
+    text: str,
+    origin: Tuple[int, int],
+    scale: float = 0.55,
+    color: Color = (245, 245, 245),
+    thickness: int = 1,
 ) -> None:
-    """Draw a top warning banner for the overall scene risk."""
-    detection_list = list(detections)
-    overall_level, overall_score = get_overall_risk(detection_list)
-    style = get_risk_style(overall_level)
-    overlay = image.copy()
+    cv2.putText(
+        image,
+        text,
+        origin,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        color,
+        thickness,
+        cv2.LINE_AA,
+    )
 
-    banner_h = 58
-    cv2.rectangle(overlay, (0, 0), (image.shape[1], banner_h), style["color"], -1)
-    cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
+
+def draw_label(
+    image: np.ndarray,
+    text: str,
+    x: int,
+    y: int,
+    color: Color,
+    scale: float = 0.48,
+) -> None:
+    padding = 5
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, 1)
+    x1 = max(0, min(x, image.shape[1] - text_w - padding * 2 - 1))
+    y2 = max(text_h + padding * 2, y)
+    y1 = max(0, y2 - text_h - padding * 2 - baseline)
+    x2 = min(image.shape[1] - 1, x1 + text_w + padding * 2)
+
+    cv2.rectangle(image, (x1, y1), (x2, y2), color, -1)
+    put_text(image, text, (x1 + padding, y2 - padding - baseline), scale=scale)
+
+
+def draw_scaled_detections(
+    image: np.ndarray,
+    detections: Iterable[Detection],
+    scale: float,
+) -> None:
+    for detection in detections:
+        item = normalize_detection(detection)
+        x1, y1, x2, y2 = item["bbox"]
+        x1, y1, x2, y2 = (
+            int(x1 * scale),
+            int(y1 * scale),
+            int(x2 * scale),
+            int(y2 * scale),
+        )
+        style = get_risk_style(item["risk_level"])
+        color = style["color"]
+
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
+        center = ((x1 + x2) // 2, (y1 + y2) // 2)
+        cv2.circle(image, center, 5, color, -1)
+
+        confidence = item["confidence"]
+        confidence_text = "" if confidence is None else f" {float(confidence):.2f}"
+        score = item["risk_score"]
+        score_text = "" if score is None else f" / {int(score)}"
+        label = f"{item['class_name']}{confidence_text} | {item['risk_level']}{score_text}"
+        label_y = y1 - 7 if y1 > 28 else y2 + 25
+        draw_label(image, label, x1, label_y, color)
+
+# 상단 경고 패널
+def draw_top_bar(
+    canvas: np.ndarray,
+    detections: Iterable[Detection],
+    top_height: int,
+) -> None:
+    overall_level, overall_score = get_overall_risk(detections)
+    style = get_risk_style(overall_level)
+    color = style["color"]
+
+    cv2.rectangle(canvas, (0, 0), (canvas.shape[1], top_height), color, -1)
 
     score_text = "" if overall_score is None else f" | max score {int(overall_score)}"
-    message = f"{style['warning']} | risk {style['text']}{score_text}"
-    cv2.putText(
-        image,
-        message,
-        (16, 38),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.75,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
+    put_text(canvas, "Pedestrian Risk AI", (20, 32), scale=0.85, thickness=2)
+    put_text(
+        canvas,
+        f"{style['message']} | overall risk {style['label']}{score_text}",
+        (20, 62),
+        scale=0.58,
+        thickness=1,
     )
 
+# 우측 정보 패널
+def draw_side_panel(
+    canvas: np.ndarray,
+    detections: Iterable[Detection],
+    panel_x: int,
+    panel_y: int,
+    panel_w: int,
+    panel_h: int,
+) -> None:
+    normalized = normalize_detections(detections)
+    cv2.rectangle(canvas, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (32, 34, 38), -1)
+    cv2.rectangle(canvas, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (90, 90, 90), 1)
 
-def draw_summary_panel(image: np.ndarray, detections: Iterable[Dict[str, Any]]) -> None:
-    """Draw object count and risk-level legend in the lower-left corner."""
-    detection_list = [normalize_detection(item) for item in detections]
-    panel_w = 260
-    panel_h = 112
-    margin = 12
-    x1 = margin
-    y1 = image.shape[0] - panel_h - margin
-    x2 = x1 + panel_w
-    y2 = y1 + panel_h
+    put_text(canvas, "Result Summary", (panel_x + 18, panel_y + 34), scale=0.65, thickness=2)
+    put_text(canvas, f"Detected objects: {len(normalized)}", (panel_x + 18, panel_y + 68), scale=0.52)
 
-    overlay = image.copy()
-    cv2.rectangle(overlay, (x1, y1), (x2, y2), (30, 30, 30), -1)
-    cv2.addWeighted(overlay, 0.72, image, 0.28, 0, image)
+    counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0, "UNKNOWN": 0}
+    for item in normalized:
+        counts[item["risk_level"]] = counts.get(item["risk_level"], 0) + 1
 
-    counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "UNKNOWN": 0}
-    for detection in detection_list:
-        counts[detection["risk_level"]] = counts.get(detection["risk_level"], 0) + 1
-
-    cv2.putText(
-        image,
-        f"Detected objects: {len(detection_list)}",
-        (x1 + 12, y1 + 26),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (255, 255, 255),
-        1,
-        cv2.LINE_AA,
-    )
-
-    for index, level in enumerate(("HIGH", "MEDIUM", "LOW")):
+    y = panel_y + 105
+    for level in ("HIGH", "MEDIUM", "LOW"):
         style = get_risk_style(level)
-        row_y = y1 + 52 + index * 20
-        cv2.rectangle(image, (x1 + 12, row_y - 10), (x1 + 28, row_y + 6), style["color"], -1)
-        cv2.putText(
-            image,
-            f"{level}: {counts.get(level, 0)}",
-            (x1 + 38, row_y + 4),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 255),
-            1,
-            cv2.LINE_AA,
-        )
+        cv2.rectangle(canvas, (panel_x + 18, y - 15), (panel_x + 38, y + 5), style["color"], -1)
+        put_text(canvas, f"{level}: {counts[level]}", (panel_x + 50, y + 3), scale=0.5)
+        y += 28
+
+    y += 16
+    put_text(canvas, "Objects", (panel_x + 18, y), scale=0.58, thickness=2)
+    y += 28
+
+    for idx, item in enumerate(normalized[:9], start=1):
+        style = get_risk_style(item["risk_level"])
+        score = item["risk_score"]
+        score_text = "-" if score is None else str(int(score))
+        confidence = item["confidence"]
+        conf_text = "-" if confidence is None else f"{float(confidence):.2f}"
+        line = f"{idx}. {item['class_name']} | {item['risk_level']} | {score_text} | {conf_text}"
+
+        cv2.circle(canvas, (panel_x + 25, y - 5), 5, style["color"], -1)
+        put_text(canvas, line, (panel_x + 40, y), scale=0.42)
+        y += 24
+
+        if y > panel_y + panel_h - 20:
+            break
 
 
-def visualize_results(
-    image: np.ndarray,
-    detections: List[Dict[str, Any]],
+def render_final_screen(
+    frame: np.ndarray,
+    results: List[Detection],
     output_path: Optional[str] = None,
     show: bool = False,
+    window_name: str = "Pedestrian Risk AI",
 ) -> np.ndarray:
     """
-    Draw all visualization elements and optionally save/show the result image.
+    입력 이미지와 분석 결과를 최종 UI 화면으로 만든다.
 
-    Each detection should include class/class_name, bbox or box, confidence,
-    risk_score/score, and risk_level/level when available.
+    화면은 상단 경고 영역, 중앙 이미지 영역, 우측 정보 패널로 분리해
+    중요한 정보가 서로 가려지지 않도록 구성한다.
     """
-    result_image = image.copy()
+    top_h = 82
+    margin = 16
+    panel_w = 340
+    canvas_w = 1280
+    canvas_h = 720
+    content_h = canvas_h - top_h - margin * 2
+    image_area_w = canvas_w - panel_w - margin * 3
 
-    for detection in detections:
-        draw_detection_box(result_image, detection)
+    frame_h, frame_w = frame.shape[:2]
+    scale = min(image_area_w / frame_w, content_h / frame_h)
+    display_w = max(1, int(frame_w * scale))
+    display_h = max(1, int(frame_h * scale))
 
-    draw_warning_banner(result_image, detections)
-    draw_summary_panel(result_image, detections)
+    canvas = np.full((canvas_h, canvas_w, 3), (18, 20, 24), dtype=np.uint8)
+    draw_top_bar(canvas, results, top_h)
+
+    image_x = margin
+    image_y = top_h + margin + (content_h - display_h) // 2
+    panel_x = image_x + image_area_w + margin
+    panel_y = top_h + margin
+
+    cv2.rectangle(
+        canvas,
+        (image_x - 1, top_h + margin - 1),
+        (image_x + image_area_w + 1, top_h + margin + content_h + 1),
+        (70, 74, 82),
+        1,
+    )
+
+    display_image = cv2.resize(frame, (display_w, display_h), interpolation=cv2.INTER_AREA)
+    draw_scaled_detections(display_image, results, scale)
+    canvas[image_y:image_y + display_h, image_x:image_x + display_w] = display_image
+
+    draw_side_panel(canvas, results, panel_x, panel_y, panel_w, content_h)
 
     if output_path:
         output_dir = os.path.dirname(output_path)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
-        cv2.imwrite(output_path, result_image)
+        cv2.imwrite(output_path, canvas)
 
     if show:
-        cv2.imshow("Pedestrian Risk AI", result_image)
+        cv2.imshow(window_name, canvas)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
-    return result_image
+    return canvas
 
 
-def load_detections(json_path: str) -> List[Dict[str, Any]]:
-    """Load detection results from a JSON file for standalone UI testing."""
+def visualize_results(
+    image: np.ndarray,
+    detections: List[Detection],
+    output_path: Optional[str] = None,
+    show: bool = False,
+) -> np.ndarray:
+    return render_final_screen(
+        frame=image,
+        results=detections,
+        output_path=output_path,
+        show=show,
+    )
+
+
+def visualize_image(
+    image_path: str,
+    results: List[Detection],
+    output_path: Optional[str] = None,
+    show: bool = True,
+) -> np.ndarray:
+    image = cv2.imread(image_path)
+    if image is None:
+        raise FileNotFoundError(f"Could not load image: {image_path}")
+
+    return render_final_screen(
+        frame=image,
+        results=results,
+        output_path=output_path,
+        show=show,
+    )
+
+
+def visualize_video(
+    video_path: str,
+    frame_results: Dict[int, List[Detection]],
+    output_path: Optional[str] = None,
+    show: bool = True,
+) -> None:
+    capture = cv2.VideoCapture(video_path)
+    if not capture.isOpened():
+        raise FileNotFoundError(f"Could not load video: {video_path}")
+
+    fps = capture.get(cv2.CAP_PROP_FPS) or 30
+    width = 1280
+    height = 720
+
+    writer = None
+    if output_path:
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    frame_index = 0
+    while True:
+        success, frame = capture.read()
+        if not success:
+            break
+
+        results = frame_results.get(frame_index, [])
+        result_frame = render_final_screen(frame, results)
+
+        if writer is not None:
+            writer.write(result_frame)
+
+        if show:
+            cv2.imshow("Pedestrian Risk AI", result_frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+
+        frame_index += 1
+
+    capture.release()
+    if writer is not None:
+        writer.release()
+    if show:
+        cv2.destroyAllWindows()
+
+
+def load_results(json_path: str) -> Union[List[Detection], Dict[int, List[Detection]]]:
     with open(json_path, "r", encoding="utf-8") as file:
         data = json.load(file)
 
-    if isinstance(data, dict):
-        return data.get("detections", [])
-    return data
+    if isinstance(data, list):
+        return data
+
+    if "frames" in data:
+        return {
+            int(frame["frame_index"]): frame.get("detections", [])
+            for frame in data["frames"]
+        }
+
+    return data.get("detections", [])
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Draw object detection and risk UI.")
-    parser.add_argument("--image", required=True, help="Input image path")
-    parser.add_argument("--detections", required=True, help="Detection JSON path")
-    parser.add_argument("--output", default="outputs/ui_result.jpg", help="Output image path")
-    parser.add_argument("--show", action="store_true", help="Show result window")
+    parser = argparse.ArgumentParser(
+        description="Visualize object detection and risk analysis results."
+    )
+    parser.add_argument("--image", help="Input image path")
+    parser.add_argument("--video", help="Input video path")
+    parser.add_argument("--detections", required=True, help="Detection/risk result JSON path")
+    parser.add_argument("--output", help="Output image or video path")
+    parser.add_argument("--show", action="store_true", help="Show final result screen")
     args = parser.parse_args()
 
-    image = cv2.imread(args.image)
-    if image is None:
-        raise FileNotFoundError(f"Could not load image: {args.image}")
+    results = load_results(args.detections)
 
-    detections = load_detections(args.detections)
-    visualize_results(image, detections, output_path=args.output, show=args.show)
-    print(f"Visualization saved: {args.output}")
+    if args.image:
+        if not isinstance(results, list):
+            raise ValueError("Image visualization requires a detection list.")
+        visualize_image(args.image, results, output_path=args.output, show=args.show)
+        print("Final image screen generated.")
+        return
+
+    if args.video:
+        if not isinstance(results, dict):
+            raise ValueError("Video visualization requires frame-based detections.")
+        visualize_video(args.video, results, output_path=args.output, show=args.show)
+        print("Final video screen generated.")
+        return
+
+    raise ValueError("Either --image or --video must be provided.")
 
 
 if __name__ == "__main__":
