@@ -1,11 +1,14 @@
 from ultralytics import YOLO
 import cv2
+import json
 import os
+import random
 
 from risk_analysis import (
     calculate_risk,
     get_risk_level
 )
+from ui import visualize_results
 
 # =========================
 # 경로 설정
@@ -15,8 +18,42 @@ PROJECT_ROOT = os.path.abspath(
 )
 
 MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "best.pt")
-IMAGE_PATH = os.path.join(PROJECT_ROOT, "test_images", "test1.jpg")
+TEST_IMAGES_DIR = os.path.join(PROJECT_ROOT, "test_images")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "outputs")
+DETECTIONS_JSON_PATH = os.path.join(OUTPUT_DIR, "detections.json")
+
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
+
+
+def select_random_image():
+    """test_images 폴더에서 입력 이미지를 랜덤 지정"""
+    image_files = [
+        file_name for file_name in os.listdir(TEST_IMAGES_DIR)
+        if file_name.lower().endswith(IMAGE_EXTENSIONS)
+    ]
+
+    if not image_files:
+        return None
+
+    selected_file = random.choice(image_files)
+    return os.path.join(TEST_IMAGES_DIR, selected_file)
+
+
+def make_output_image_path(IMAGE_PATH):
+    """선택된 이미지 이름을 반영한 결과 이미지 경로 생성"""
+    image_name = os.path.splitext(os.path.basename(IMAGE_PATH))[0]
+    return os.path.join(OUTPUT_DIR, f"result_{image_name}.jpg")
+
+
+def save_detections_json(IMAGE_PATH, detections):
+    """객체 인식 결과와 위험도 결과를 JSON 파일로 저장"""
+    data = {
+        "image": IMAGE_PATH,
+        "detections": detections
+    }
+
+    with open(DETECTIONS_JSON_PATH, "w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=2)
 
 
 def main():
@@ -26,9 +63,19 @@ def main():
         print("모델 파일을 찾을 수 없습니다:", MODEL_PATH)
         return
 
-    if not os.path.exists(IMAGE_PATH):
-        print("이미지 파일을 찾을 수 없습니다:", IMAGE_PATH)
+    if not os.path.isdir(TEST_IMAGES_DIR):
+        print("test_images 폴더를 찾을 수 없습니다:", TEST_IMAGES_DIR)
         return
+
+    IMAGE_PATH = select_random_image()
+    if IMAGE_PATH is None:
+        print("test_images 폴더에 사용할 수 있는 이미지가 없습니다.")
+        return
+
+    output_image_path = make_output_image_path(IMAGE_PATH)
+
+    print("선택된 입력 이미지:")
+    print(IMAGE_PATH)
 
     # 1. 모델 로드
     model = YOLO(MODEL_PATH)
@@ -51,15 +98,26 @@ def main():
     result = results[0]
     names = model.names
 
-    output_img = image.copy()
-
-    if result.boxes is None or len(result.boxes) == 0:
-        print("검출된 객체가 없습니다.")
-        return
-
     print("\n===== 객체 검출 결과 =====")
 
     risk_results = []
+    detections = []
+
+    if result.boxes is None or len(result.boxes) == 0:
+        print("검출된 객체가 없습니다.")
+        save_detections_json(IMAGE_PATH, detections)
+        visualize_results(
+            image=image,
+            detections=detections,
+            output_path=output_image_path,
+            show=True
+        )
+
+        print("\nJSON 저장 완료:")
+        print(DETECTIONS_JSON_PATH)
+        print("\n최종 결과 화면 저장 완료:")
+        print(output_image_path)
+        return
 
     # 4. 검출 결과 순회
     for idx, box_data in enumerate(result.boxes, start=1):
@@ -100,7 +158,25 @@ def main():
 
         risk_results.append({
             "class": class_name,
-            "score": risk_score
+            "score": risk_score,
+            "level": risk_level
+        })
+
+        detections.append({
+            "class": class_name,
+            "bbox": [x1, y1, x2, y2],
+            "x1": x1,
+            "y1": y1,
+            "x2": x2,
+            "y2": y2,
+            "center_x": center_x,
+            "center_y": center_y,
+            "width": box_w,
+            "height": box_h,
+            "area": box_area,
+            "confidence": conf,
+            "risk_score": risk_score,
+            "risk_level": risk_level
         })
 
         # 콘솔 출력
@@ -109,25 +185,8 @@ def main():
         print(f"    박스 좌표: ({x1}, {y1}, {x2}, {y2})")
         print(f"    중심 위치: ({center_x}, {center_y})")
         print(f"    크기: width={box_w}, height={box_h}, area={box_area}")
-
         print(f"    위험도 점수: {risk_score}")
         print(f"    위험도 등급: {risk_level}")
-
-        # 이미지에 박스/라벨 그리기
-        label = f"{class_name} {conf:.2f}"
-        color = (0, 255, 0)
-
-        cv2.rectangle(output_img, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(output_img, label, (x1, max(y1 - 10, 20)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-        # 중심점 표시
-        cv2.circle(output_img, (center_x, center_y), 4, (0, 0, 255), -1)
-
-        # 중심 좌표 텍스트
-        center_text = f"({center_x},{center_y})"
-        cv2.putText(output_img, center_text, (center_x + 5, center_y - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
     # 가장 위험한 객체 계산
     most_dangerous = max(
@@ -138,12 +197,22 @@ def main():
     print("\n가장 위험한 객체")
     print(most_dangerous)
 
-    # 5. 결과 이미지 저장
-    output_path = os.path.join(OUTPUT_DIR, "result_test1.jpg")
-    cv2.imwrite(output_path, output_img)
+    # 5. 객체 인식 결과 및 위험도 결과 JSON 저장
+    save_detections_json(IMAGE_PATH, detections)
 
-    print("\n결과 이미지 저장 완료:")
-    print(output_path)
+    print("\nJSON 저장 완료:")
+    print(DETECTIONS_JSON_PATH)
+
+    # 6. UI 시각화 모듈을 통해 최종 결과 화면 저장 및 출력
+    visualize_results(
+        image=image,
+        detections=detections,
+        output_path=output_image_path,
+        show=True
+    )
+
+    print("\n최종 결과 화면 저장 완료:")
+    print(output_image_path)
 
 
 if __name__ == "__main__":
