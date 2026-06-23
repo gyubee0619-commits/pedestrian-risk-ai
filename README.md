@@ -48,6 +48,7 @@ pedestrian-risk-ai/
 ├─ src/
 │ ├─ detect_objects.py
 │ ├─ risk_analysis.py
+├─ requirements.txt
 ├─ yolov8n.pt
 ```
 
@@ -82,6 +83,11 @@ ui.py : 시각화/UI 코드
 6. train/
 
 학습 과정에서 사용된 파일 또는 학습 관련 리소스를 저장하는 폴더입니다.
+
+7. requirements.txt/
+해당 프로젝트 실행 시 설치가 필요한 라이브러리를 안내한 파일입니다.
+
+8. yolo8n.pt
 
 
 ## 실행방법
