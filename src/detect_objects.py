@@ -10,15 +10,26 @@ from risk_analysis import (
 # =========================
 # 경로 설정
 # =========================
-PROJECT_ROOT = r"C:\Users\ansl\OneDrive - 숙명여자대학교\바탕 화면\pedestrian-risk-ai"
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), os.pardir)
+)
 
 MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "best.pt")
 IMAGE_PATH = os.path.join(PROJECT_ROOT, "test_images", "test1.jpg")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "outputs")
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def main():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    if not os.path.exists(MODEL_PATH):
+        print("모델 파일을 찾을 수 없습니다:", MODEL_PATH)
+        return
+
+    if not os.path.exists(IMAGE_PATH):
+        print("이미지 파일을 찾을 수 없습니다:", IMAGE_PATH)
+        return
+
     # 1. 모델 로드
     model = YOLO(MODEL_PATH)
 
@@ -71,10 +82,10 @@ def main():
 
         # 위험도 계산
         prediction = {
-        "class": class_name,
-        "x": center_x,
-        "width": box_w,
-        "height": box_h
+            "class": class_name,
+            "x": center_x,
+            "width": box_w,
+            "height": box_h
         }
 
         risk_score = calculate_risk(
@@ -88,8 +99,8 @@ def main():
         )
 
         risk_results.append({
-        "class": class_name,
-        "score": risk_score
+            "class": class_name,
+            "score": risk_score
         })
 
         # 콘솔 출력
@@ -117,11 +128,11 @@ def main():
         center_text = f"({center_x},{center_y})"
         cv2.putText(output_img, center_text, (center_x + 5, center_y - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-    
-    #가장 위험한 객체 계산
+
+    # 가장 위험한 객체 계산
     most_dangerous = max(
-    risk_results,
-    key=lambda x: x["score"]
+        risk_results,
+        key=lambda x: x["score"]
     )
 
     print("\n가장 위험한 객체")
@@ -133,6 +144,7 @@ def main():
 
     print("\n결과 이미지 저장 완료:")
     print(output_path)
+
 
 if __name__ == "__main__":
     main()
