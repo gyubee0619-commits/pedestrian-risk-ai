@@ -99,6 +99,7 @@ pedestrian-risk-ai/
 ├─ src/
 │ ├─ detect_objects.py
 │ ├─ risk_analysis.py
+| └─ ui.py 
 ├─ requirements.txt
 ├─ yolov8n.pt
 ```
@@ -155,7 +156,7 @@ train, valid, test, images, labels, data.yaml 등의 구조를 포함합니다.
 
 detect_objects.py : 객체 검출 및 정보 추출 코드
 risk_analysis.py : 위험도 계산 및 위험 등급 분류 코드
-ui.py : 시각화/UI 코드
+ui.py : UI 시각화 코드
 
 10. test_images/
 
@@ -196,7 +197,7 @@ pip install -r requirements.txt
 
 예시:
 
-python src/object_detect.py
+python src/detect_objects.py
 
 
 ## 입력 및 출력
@@ -272,6 +273,15 @@ python src/object_detect.py
         ↓
 최종 결과 화면 출력
 ```
+
+## UI 화면 구성
+1) 상단 
+- 전체 위험도 경고 메시지
+2) 중앙 왼쪽
+- 원본 이미지, 객체 박스/레이블
+3) 오른쪽
+- 감지 객체 수, 위험도별 개수, 객체별 요약 목록
+
 ## 협업 방식
 
 본 프로젝트는 GitHub를 활용하여 코드, 모델, 데이터셋 관련 파일을 공유하고 버전을 관리하였다.  
