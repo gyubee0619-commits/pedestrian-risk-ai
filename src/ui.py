@@ -12,6 +12,7 @@ Box = Tuple[int, int, int, int]
 Detection = Dict[str, Any]
 
 
+# 위험도별 UI 색상, 라벨, 상단 안내 문구를 한곳에서 관리한다.
 RISK_STYLES: Dict[str, Dict[str, Any]] = {
     "LOW": {
         "color": (34, 170, 76),
@@ -38,6 +39,7 @@ DEFAULT_STYLE = {
 
 
 def get_risk_level_from_score(score: Optional[Union[int, float]]) -> str:
+    # 점수만 있는 결과를 화면 표시용 위험도 단계로 변환한다.
     if score is None:
         return "UNKNOWN"
     if score >= 80:
@@ -48,12 +50,14 @@ def get_risk_level_from_score(score: Optional[Union[int, float]]) -> str:
 
 
 def get_risk_style(risk_level: Optional[str]) -> Dict[str, Any]:
+    # 알 수 없는 위험도 값은 기본 회색 스타일로 처리한다.
     if risk_level is None:
         return DEFAULT_STYLE
     return RISK_STYLES.get(str(risk_level).upper(), DEFAULT_STYLE)
 
 
 def normalize_box(detection: Detection) -> Box:
+    # 모델/파이프라인마다 다른 박스 필드명을 (x1, y1, x2, y2) 형식으로 통일한다.
     box = detection.get("bbox") or detection.get("box")
     if box is not None:
         x1, y1, x2, y2 = box
@@ -75,6 +79,7 @@ def normalize_box(detection: Detection) -> Box:
 
 
 def normalize_detection(detection: Detection) -> Detection:
+    # UI 렌더링 단계에서 필요한 공통 필드만 표준 구조로 정리한다.
     x1, y1, x2, y2 = normalize_box(detection)
     width = int(detection.get("width", x2 - x1))
     height = int(detection.get("height", y2 - y1))
@@ -101,6 +106,7 @@ def normalize_detections(detections: Iterable[Detection]) -> List[Detection]:
 
 
 def get_overall_risk(detections: Iterable[Detection]) -> Tuple[str, Optional[float]]:
+    # 상단 경고 바에 표시할 전체 위험도는 가장 높은 위험도를 기준으로 결정한다.
     normalized = normalize_detections(detections)
     if not normalized:
         return "LOW", None
@@ -124,6 +130,7 @@ def put_text(
     color: Color = (245, 245, 245),
     thickness: int = 1,
 ) -> None:
+    # OpenCV 텍스트 렌더링 옵션을 공통으로 맞춘 작은 래퍼이다.
     cv2.putText(
         image,
         text,
@@ -144,6 +151,7 @@ def draw_label(
     color: Color,
     scale: float = 0.48,
 ) -> None:
+    # 객체 박스 위/아래에 배경이 있는 라벨을 그려 영상 위에서도 잘 보이게 한다.
     padding = 5
     font = cv2.FONT_HERSHEY_SIMPLEX
     (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, 1)
@@ -161,6 +169,7 @@ def draw_scaled_detections(
     detections: Iterable[Detection],
     scale: float,
 ) -> None:
+    # 원본 좌표계를 표시 이미지 크기에 맞춰 스케일링한 뒤 박스와 라벨을 그린다.
     for detection in detections:
         item = normalize_detection(detection)
         x1, y1, x2, y2 = item["bbox"]
@@ -207,7 +216,7 @@ def draw_top_bar(
         thickness=1,
     )
 
-# 우측 정보 패널
+# 오른쪽 정보 패널
 def draw_side_panel(
     canvas: np.ndarray,
     detections: Iterable[Detection],
@@ -227,6 +236,7 @@ def draw_side_panel(
     for item in normalized:
         counts[item["risk_level"]] = counts.get(item["risk_level"], 0) + 1
 
+    # 위험도별 감지 개수를 요약해서 표시한다.
     y = panel_y + 105
     for level in ("HIGH", "MEDIUM", "LOW"):
         style = get_risk_style(level)
@@ -238,6 +248,7 @@ def draw_side_panel(
     put_text(canvas, "Objects", (panel_x + 18, y), scale=0.58, thickness=2)
     y += 28
 
+    # 패널 높이를 넘지 않도록 최대 9개까지만 상세 목록을 보여준다.
     for idx, item in enumerate(normalized[:9], start=1):
         style = get_risk_style(item["risk_level"])
         score = item["risk_score"]
@@ -264,8 +275,8 @@ def render_final_screen(
     """
     입력 이미지와 분석 결과를 최종 UI 화면으로 만든다.
 
-    화면은 상단 경고 영역, 중앙 이미지 영역, 우측 정보 패널로 분리해
-    중요한 정보가 서로 가려지지 않도록 구성한다.
+    화면은 상단 경고 영역, 중앙 이미지 영역, 오른쪽 정보 패널로 나뉜다.
+    중요한 정보가 서로 가려지지 않도록 고정 크기 캔버스 안에 배치한다.
     """
     top_h = 82
     margin = 16
@@ -276,6 +287,7 @@ def render_final_screen(
     image_area_w = canvas_w - panel_w - margin * 3
 
     frame_h, frame_w = frame.shape[:2]
+    # 원본 비율을 유지하면서 중앙 이미지 영역 안에 들어가도록 축소/확대 비율을 계산한다.
     scale = min(image_area_w / frame_w, content_h / frame_h)
     display_w = max(1, int(frame_w * scale))
     display_h = max(1, int(frame_h * scale))
@@ -302,12 +314,14 @@ def render_final_screen(
 
     draw_side_panel(canvas, results, panel_x, panel_y, panel_w, content_h)
 
+    # output_path가 있으면 결과 화면을 파일로 저장한다.
     if output_path:
         output_dir = os.path.dirname(output_path)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
         cv2.imwrite(output_path, canvas)
 
+    # show 옵션이 켜져 있으면 OpenCV 창으로 결과를 확인한다.
     if show:
         cv2.imshow(window_name, canvas)
         cv2.waitKey(0)
@@ -322,6 +336,7 @@ def visualize_results(
     output_path: Optional[str] = None,
     show: bool = False,
 ) -> np.ndarray:
+    # 기존 호출부와의 호환을 위한 이미지 시각화 래퍼이다.
     return render_final_screen(
         frame=image,
         results=detections,
@@ -336,6 +351,7 @@ def visualize_image(
     output_path: Optional[str] = None,
     show: bool = True,
 ) -> np.ndarray:
+    # 이미지 파일을 읽어 최종 화면으로 렌더링한다.
     image = cv2.imread(image_path)
     if image is None:
         raise FileNotFoundError(f"Could not load image: {image_path}")
@@ -354,6 +370,7 @@ def visualize_video(
     output_path: Optional[str] = None,
     show: bool = True,
 ) -> None:
+    # 비디오의 각 프레임에 해당 프레임의 감지 결과를 입혀 렌더링한다.
     capture = cv2.VideoCapture(video_path)
     if not capture.isOpened():
         raise FileNotFoundError(f"Could not load video: {video_path}")
@@ -364,6 +381,7 @@ def visualize_video(
 
     writer = None
     if output_path:
+        # 저장 경로가 주어지면 1280x720 결과 영상을 MP4로 기록한다.
         output_dir = os.path.dirname(output_path)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
@@ -384,6 +402,7 @@ def visualize_video(
 
         if show:
             cv2.imshow("Pedestrian Risk AI", result_frame)
+            # q 키를 누르면 미리보기를 중단한다.
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
@@ -397,6 +416,7 @@ def visualize_video(
 
 
 def load_results(json_path: str) -> Union[List[Detection], Dict[int, List[Detection]]]:
+    # 이미지용 리스트와 비디오용 프레임 딕셔너리 JSON을 모두 지원한다.
     with open(json_path, "r", encoding="utf-8") as file:
         data = json.load(file)
 
@@ -413,6 +433,7 @@ def load_results(json_path: str) -> Union[List[Detection], Dict[int, List[Detect
 
 
 def main() -> None:
+    # 명령행에서 이미지 또는 비디오 시각화를 실행할 수 있게 한다.
     parser = argparse.ArgumentParser(
         description="Visualize object detection and risk analysis results."
     )

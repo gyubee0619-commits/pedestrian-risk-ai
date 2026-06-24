@@ -26,7 +26,7 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
 
 def select_random_image():
-    """test_images 폴더에서 입력 이미지를 랜덤 지정"""
+    """test_images 폴더에서 입력 이미지를 지정"""
     image_files = [
         file_name for file_name in os.listdir(TEST_IMAGES_DIR)
         if file_name.lower().endswith(IMAGE_EXTENSIONS)
